@@ -51,6 +51,22 @@ const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 function stripFences(s = "") { return s.replace(/^```(json)?/i, "").replace(/```$/i, "").trim(); }
 function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }
 
+// Simple concurrency-limited mapper to avoid hammering the API
+async function pMap(items, mapper, concurrency = 3) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      try { results[current] = await mapper(items[current], current); }
+      catch (err) { results[current] = undefined; }
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
 /************** API **************/
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const MODEL_PREFS = [
@@ -527,7 +543,7 @@ export default function App(){
       const inlineCharacters = await buildInlineAssets(characterAssets.map(a => a.name), assets);
       const characterNames = characterAssets.map(a => a.name).join(', ');
 
-      await Promise.all(batch.map(async (item, i) => {
+  await pMap(batch, async (item, i) => {
         setStatus(`Variation ${i+1}/${batch.length}`);
         try{
           let p = `${item.prompt} CRITICAL: Preserve exact face identities for ${characterNames} using the provided images. Do not alter their identities. Style: ${imageStyle}.`;
@@ -540,7 +556,7 @@ export default function App(){
         }catch(e){
           setGallery(G=>G.map(g=>g.id===item.id?{...g,status:"error",error:String(e.message||e)}:g));
         }
-      }));
+  }, 3);
       toast("Variations ready.");
     });
   }, [apiKey, assets, theme, imageStyle, hq, negative, runJob, toast, buildInlineAssets]);
@@ -783,6 +799,26 @@ export default function App(){
               <p className="text-sm text-slate-400">Generate 10 varied 16:9 scenes. Uses preferred <span className="font-semibold">{`${LATEST_BANANA_MODEL}`}</span> when available, then falls back automatically.</p>
               <p className="text-sm text-slate-400 -mt-2">Uses all characters from the "Locked Assets" panel in the sidebar.</p>
               <Input value={theme} onChange={(e)=>setTheme(e.target.value)} placeholder="Theme (e.g., 'Desert cyberpunk chase')" />
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400">Style</label>
+                  <Select value={imageStyle} onChange={(e)=>setImageStyle(e.target.value)}>
+                    <option value="photorealistic">Photorealistic</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="illustration">Illustration</option>
+                    <option value="anime">Anime</option>
+                    <option value="watercolor">Watercolor</option>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <Switch checked={hq} onChange={setHq} />
+                  <label className="text-sm">High Quality (8K/sharp)</label>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400">Negative</label>
+                  <Input value={negative} onChange={(e)=>setNegative(e.target.value)} placeholder="e.g., watermark, text, deformed" />
+                </div>
+              </div>
               <div className="flex flex-wrap gap-2 items-center bg-black/20 p-2 rounded-lg">
                   <span className="text-sm font-medium text-slate-300">Active Characters:</span>
                   {assets.filter(a => a.type === 'character').length > 0 ? (
@@ -980,6 +1016,17 @@ export default function App(){
             <div className="p-6 space-y-3">
               <Input type="password" value={apiKey} onChange={(e)=>setApiKey(e.target.value)} placeholder="Enter Google AI Studio key" />
               <div className="flex items-center gap-2"><Switch checked={remember} onChange={setRemember}/><label className="text-sm">Remember key</label></div>
+              <div>
+                <Button variant="outline" size="sm" disabled={!apiKey || isProcessing} onClick={() => runJob(async () => {
+                  setStatus("Testing key...");
+                  try {
+                    await geminiCall(apiKey, MODEL_PREFS.find(m=>m.kind==='text')?.id || 'gemini-1.5-flash', { contents: [{ parts: [{ text: 'ping' }] }] });
+                    toast('API key looks valid.');
+                  } catch (e) {
+                    throw new Error('Key test failed. Check your API key.');
+                  }
+                })}>Test Key</Button>
+              </div>
               <p className="text-xs text-slate-500">For production, proxy the key on your server.</p>
             </div>
           </section>
