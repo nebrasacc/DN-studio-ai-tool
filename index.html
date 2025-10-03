@@ -1,671 +1,753 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DN AI Studio — Ultra Storyboard (Pro)</title>
-    <!-- Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React Libraries -->
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel to transpile JSX in the browser -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        /* Simple body style to match the app's theme */
-        body {
-            background-color: #0a0a0a;
-            color: #f3f4f6;
-            font-family: sans-serif;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DN AI Studio | Genesis Frameworks</title>
+  <!-- Tailwind (CDN JIT) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React + ReactDOM + Babel for in-browser JSX transpile -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide icons (vanilla, we wrap as React component) -->
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.js"></script>
+  <style>
+    html, body { background: #000; }
+  </style>
 </head>
-<body>
-    <!-- The root element where the React app will be mounted -->
-    <div id="root"></div>
+<body class="min-h-screen">
+  <div id="root"></div>
 
-    <!-- Embedded React Application -->
-    <script type="text/babel">
-        const { useEffect, useMemo, useRef, useState } = React;
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState, useCallback } = React;
 
-        /****************************
-         * DN AI Studio — Ultra Storyboard App (Pro)
-         ****************************/ 
+    // ---- Lucide React-less bridge ----
+    const LucideIcon = ({ name, size = 16, className = '' }) => {
+      const ref = useRef(null);
+      useEffect(() => {
+        try {
+          // Re-scan the document to upgrade any <i data-lucide> into inline SVG
+          window.lucide && window.lucide.createIcons({ attrs: { width: size, height: size } });
+        } catch {}
+      }, [name, size]);
+      return <i ref={ref} data-lucide={name} className={className}></i>;
+    };
+    const makeIcon = (n) => (props) => <LucideIcon name={n} {...props} />;
+    const Clock = makeIcon('clock');
+    const Download = makeIcon('download');
+    const FileText = makeIcon('file-text');
+    const ImageIcon = makeIcon('image');
+    const DollarSign = makeIcon('dollar-sign');
+    const Settings = makeIcon('settings');
+    const Sparkles = makeIcon('sparkles');
+    const X = makeIcon('x');
+    const Wand2 = makeIcon('wand-2');
+    const Film = makeIcon('film');
+    const CheckSquare = makeIcon('check-square');
+    const BrainCircuit = makeIcon('brain-circuit');
+    const Music = makeIcon('music');
+    const Type = makeIcon('type');
+    const RotateCw = makeIcon('rotate-cw');
+    const Loader2 = makeIcon('loader-2');
+    const Key = makeIcon('key');
+    const List = makeIcon('list');
+    const Zap = makeIcon('zap');
+    const Eye = makeIcon('eye');
 
-        /************ Utilities ************/
-        const cn = (...a) => a.filter(Boolean).join(" ");
-        const now = () => performance.now();
-        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    // --- Global Constants and Helper Functions ---
+    const cn = (...a) => a.filter(Boolean).join(' ');
 
-        // Simple hash for cache keys
-        async function sha256(text) {
-          const buf = new TextEncoder().encode(text);
-          const digest = await crypto.subtle.digest("SHA-256", buf);
-          return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+    // 1. Audio Engine
+    const AudioEngine = {
+      ctx: null,
+      init() {
+        if (this.ctx) return;
+        try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+      },
+      play(type) {
+        if (!this.ctx) return;
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.connect(g); g.connect(this.ctx.destination);
+        g.gain.setValueAtTime(0, this.ctx.currentTime);
+        if (type === 'click') {
+          o.type='sine'; o.frequency.setValueAtTime(600,this.ctx.currentTime); g.gain.linearRampToValueAtTime(0.15,this.ctx.currentTime+0.01);
+          o.frequency.exponentialRampToValueAtTime(300,this.ctx.currentTime+0.1); g.gain.exponentialRampToValueAtTime(1e-4,this.ctx.currentTime +0.1);
+        } else if (type === 'success') {
+          o.type='sine'; o.frequency.setValueAtTime(523.25, this.ctx.currentTime); g.gain.linearRampToValueAtTime(0.2,this.ctx.currentTime+0.01);
+          o.frequency.exponentialRampToValueAtTime(1046.5,this.ctx.currentTime+0.15); g.gain.exponentialRampToValueAtTime (1e-4,this.ctx.currentTime +0.15);
+        } else if (type === 'error') {
+          o.type='square'; o.frequency.setValueAtTime(200,this.ctx.currentTime); g.gain.linearRampToValueAtTime(0.2,this.ctx.currentTime+0.01);
+          o.frequency.exponentialRampToValueAtTime(100,this.ctx.currentTime +0.2); g.gain.exponentialRampToValueAtTime(1e-4,this.ctx.currentTime +0.2);
         }
+        o.start(this.ctx.currentTime); o.stop(this.ctx.currentTime + 0.22);
+      }
+    };
 
-        /************ IndexedDB Cache ************/
-        const idb = (() => {
-          let dbPromise;
-          function getDB() {
-            if (!('indexedDB' in window)) return null;
-            if (!dbPromise) {
-              dbPromise = new Promise((resolve, reject) => {
-                const req = indexedDB.open('dn-ai-pro-cache', 1);
-                req.onupgradeneeded = () => req.result.createObjectStore('images');
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-              });
-            }
-            return dbPromise;
-          }
-          return {
-            async get(key) {
-              const db = await getDB();
-              if (!db) return null;
-              return new Promise((resolve, reject) => {
-                const tx = db.transaction('images', 'readonly');
-                const req = tx.objectStore('images').get(key);
-                req.onsuccess = () => resolve(req.result || null);
-                req.onerror = () => reject(req.error);
-              });
-            },
-            async set(key, value) {
-              const db = await getDB();
-              if (!db) return false;
-              return new Promise((resolve, reject) => {
-                const tx = db.transaction('images', 'readwrite');
-                tx.objectStore('images').put(value, key);
-                tx.oncomplete = () => resolve(true);
-                tx.onerror = () => reject(tx.error);
-              });
-            }
-          };
-        })();
-
-        /************ Worker for branding ************/
-        function makeBrandWorker() {
-          const code = `self.onmessage = async (e) => {
-            const { base, logo, opacity, pad } = e.data;
-            try {
-              const [baseBmp, logoBmp] = await Promise.all([
-                createImageBitmap(await (await fetch(base)).blob()),
-                createImageBitmap(await (await fetch(logo)).blob())
-              ]);
-              const off = new OffscreenCanvas(baseBmp.width, baseBmp.height);
-              const ctx = off.getContext('2d');
-              ctx.drawImage(baseBmp, 0, 0);
-              const logoH = baseBmp.height * 0.08;
-              const logoW = (logoBmp.width / logoBmp.height) * logoH;
-              const x = baseBmp.width - logoW - baseBmp.width * (pad || 0.025);
-              const y = baseBmp.height - logoH - baseBmp.height * (pad || 0.025);
-              ctx.globalAlpha = opacity ?? 0.9;
-              ctx.drawImage(logoBmp, x, y, logoW, logoH);
-              const blob = await off.convertToBlob({ type: 'image/png' });
-              const url = URL.createObjectURL(blob);
-              self.postMessage({ ok: true, url });
-            } catch (err) {
-              self.postMessage({ ok: false, error: String(err) });
-            }
-          };`;
-          const blob = new Blob([code], { type: 'application/javascript' });
-          return new Worker(URL.createObjectURL(blob), { type: 'module' });
-        }
-
-        /************ Queue with concurrency + retry ************/
-        class TaskQueue {
-          constructor(max = 3) {
-            this.max = max; this.running = 0; this.q = []; this.onChange = () => {};
-          }
-          setMax(n) { this.max = Math.max(1, n); this.tick(); }
-          push(task) { this.q.push(task); this.tick(); }
-          clear() { this.q.length = 0; }
-          async tick() {
-            while (this.running < this.max && this.q.length) {
-              const t = this.q.shift();
-              this.running++; this.onChange(this);
-              t().finally(() => { this.running--; this.onChange(this); this.tick(); });
-            }
-          }
-        }
-
-        /************ Core App ************/
-        function UltraStoryboardApp() {
-          // Config & state
-          const [apiKey, setApiKey] = useState("");
-          const [imageModel, setImageModel] = useState("gemini-2.5-flash-image-preview");
-          const [textModel, setTextModel] = useState("gemini-2.5-flash-preview-05-20");
-          const [visualStyle, setVisualStyle] = useState("Cinematic Photorealistic");
-          const [narrative, setNarrative] = useState("MYKOOD Campaign Video Script\n\nScene 1: Opening Shot ...");
-          const [refImg, setRefImg] = useState(null);
-          const [logoImg, setLogoImg] = useState(null);
-          const [brandOn, setBrandOn] = useState(true);
-          const [charLock, setCharLock] = useState(true);
-          const [predicted, setPredicted] = useState(null);
-          const [scenes, setScenes] = useState([]);
-          const [busy, setBusy] = useState(false);
-          const [status, setStatus] = useState("Ready.");
-          const [err, setErr] = useState(null);
-          const [shotSuggestions, setShotSuggestions] = useState({ sceneId: null, suggestions: [], loading: false });
-          const [musicSuggestion, setMusicSuggestion] = useState(null);
-
-          // Performance
-          const [maxConcurrent, setMaxConcurrent] = useState(4);
-          const [retryCount, setRetryCount] = useState(2);
-          const [retryDelay, setRetryDelay] = useState(1500);
-
-          // Stats
-          const [startedAt, setStartedAt] = useState(null);
-          const [finishedAt, setFinishedAt] = useState(null);
-          const [genCount, setGenCount] = useState(0);
-          const avgMsPerImg = useMemo(() => {
-            if (!startedAt || genCount === 0) return null;
-            const ms = (performance.now() - startedAt) / genCount; return ms;
-          }, [startedAt, genCount]);
-
-          // Queue
-          const queueRef = useRef(new TaskQueue(maxConcurrent));
-          useEffect(() => { queueRef.current.setMax(maxConcurrent); }, [maxConcurrent]);
-
-          // Persist lightweight config
-          useEffect(() => {
-            const saved = localStorage.getItem('dn-ai-pro-config');
-            if (saved) {
-              try { 
-                const j = JSON.parse(saved);
-                setImageModel(j.imageModel ?? imageModel);
-                setTextModel(j.textModel ?? textModel);
-                setVisualStyle(j.visualStyle ?? visualStyle);
-                setMaxConcurrent(j.maxConcurrent ?? maxConcurrent);
-              } catch {}
-            }
-          }, []);
-
-          useEffect(() => {
-            localStorage.setItem('dn-ai-pro-config', JSON.stringify({ imageModel, textModel, visualStyle, maxConcurrent }));
-          }, [imageModel, textModel, visualStyle, maxConcurrent]);
-
-          // Helpers
-          const loadExternal = (src) => new Promise((res, rej) => {
-            if (document.querySelector(`script[src="${src}"]`)) return res();
-            const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Failed '+src)); document.body.appendChild(s);
-          });
-
-          async function importPdf(file) {
-            setErr(null); setStatus('Loading PDF.js ...');
-            try {
-              if (!window.pdfjsLib) {
-                await loadExternal('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js');
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-              }
-              setStatus('Reading PDF ...');
-              const buf = new Uint8Array(await file.arrayBuffer());
-              const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-              let txt = '';
-              for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const tc = await page.getTextContent();
-                txt += tc.items.map(it => it.str).join(' ') + '\n\n';
-              }
-              setNarrative(txt.trim());
-              setStatus('PDF imported.');
-            } catch(e) {
-                setErr("Failed to load or parse PDF.");
-                setStatus("Error.");
-            }
-          }
-
-          function fileToBase64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); }); }
-
-          /** API Calls **/
-          async function callApi(model, payload) {
-              if (!apiKey) throw new Error('Missing API key. Please add it in the Configuration section.');
-              const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-              const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-              if (!r.ok) {
-                  const errorBody = await r.json();
-                  throw new Error(errorBody.error?.message || `HTTP error! status: ${r.status}`);
-              }
-              return r.json();
-          }
-
-          async function callText(parts, system, jsonSchema) {
-            const payload = { contents: [{ parts }], systemInstruction: system ? { parts: [{ text: system }] } : undefined };
-            if (jsonSchema) payload.generationConfig = { responseMimeType: 'application/json', responseSchema: jsonSchema };
-            const j = await callApi(textModel, payload);
-            return j.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          }
-
-          async function callImage(promptText, refDataUrl) {
-            const parts = [{ text: promptText }];
-            if (refDataUrl) {
-              const b64 = refDataUrl.split(',')[1];
-              parts.push({ inlineData: { mimeType: 'image/png', data: b64 }});
-            }
-            const payload = { contents: [{ parts }], generationConfig: { responseModalities: ['IMAGE'] } };
-            const j = await callApi(imageModel, payload);
-            const base64 = j.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-            if (!base64) throw new Error('No image data returned');
-            return `data:image/png;base64,${base64}`;
-          }
-
-          /** Branding **/
-          async function brandImage(baseUrl) {
-            if (!brandOn || !logoImg) return baseUrl;
-            if ('OffscreenCanvas' in window) {
-              const worker = makeBrandWorker();
-              return await new Promise((resolve) => {
-                worker.onmessage = (e) => { if (e.data.ok) resolve(e.data.url); else resolve(baseUrl); worker.terminate(); };
-                worker.postMessage({ base: baseUrl, logo: logoImg, opacity: 0.9, pad: 0.025 });
-              });
-            } else {
-              const base = await (await fetch(baseUrl)).blob();
-              const baseImg = await createImageBitmap(base);
-              const logo = await (await fetch(logoImg)).blob();
-              const logoBmp = await createImageBitmap(logo);
-              const c = document.createElement('canvas'); c.width = baseImg.width; c.height = baseImg.height;
-              const ctx = c.getContext('2d'); ctx.drawImage(baseImg,0,0);
-              const h = c.height * 0.08; const w = (logoBmp.width/logoBmp.height)*h;
-              const x = c.width - w - c.width*0.025; const y = c.height - h - c.height*0.025;
-              ctx.globalAlpha = 0.9; ctx.drawImage(logoBmp, x, y, w, h);
-              return c.toDataURL('image/png');
-            }
-          }
-
-          /** Magic tools **/
-          async function runMagic(tool) {
-            try {
-              setErr(null);
-              if (!narrative) throw new Error('Provide a script first');
-              if (tool === 'title') {
-                const schema = { type: 'ARRAY', items: { type: 'STRING' } };
-                const out = await callText([{ text: narrative }], 'You are a marketing copywriter. Return 7 punchy titles as JSON array only.', schema);
-                return JSON.parse(out);
-              }
-              if (tool === 'logline') {
-                const out = await callText([{ text: narrative }], 'You are a screenwriter. Return a single, perfect logline (plain text, no JSON).');
-                return out;
-              }
-              if (tool === 'doctor') {
-                const schema = { type: 'ARRAY', items: { type: 'STRING' } };
-                const out = await callText([{ text: narrative }], 'You are a script doctor. Give 5 actionable improvements focusing on visual clarity/pacing. JSON array only.', schema);
-                return JSON.parse(out);
-              }
-              if (tool === 'music') {
-                const schema = { type: 'OBJECT', properties: { genre: { type: 'STRING' }, mood: { type: 'STRING' }, sound_effects: { type: 'ARRAY', items: { type: 'STRING' }}}, required: ['genre', 'mood', 'sound_effects']};
-                const sys = "You are a film score composer and sound designer. Analyze the script and suggest a music genre, overall mood, and a list of 3-5 key sound effects for crucial moments. Respond in JSON only.";
-                const out = await callText([{ text: narrative }], sys, schema);
-                const parsed = JSON.parse(out);
-                setMusicSuggestion(parsed);
-                alert(`Soundtrack Idea:\n\nGenre: ${parsed.genre}\nMood: ${parsed.mood}\n\nKey Sound Effects:\n- ${parsed.sound_effects.join('\n- ')}`);
-                return null;
-              }
-            } catch (e) { setErr(e.message); return null; }
-          }
-
-          /** Analyze scenes **/
-          async function analyze() {
-            setBusy(true); setErr(null); setStatus('Analyzing script ...'); setPredicted(null);
-            try {
-              const characterGuidance = refImg ? 'A specific character image is provided. Keep character consistent.' : 'No reference image provided. Keep implied character consistent.';
-              const schema = { type: 'ARRAY', items: { type: 'OBJECT', properties: { sceneHeader: { type: 'STRING' }, prompt: { type: 'STRING' } }, required: ['sceneHeader','prompt'] } };
-              const sys = `You are a professional screenplay analyst. Identify each distinct visual scene/major shot. For each: concise sceneHeader and a single-paragraph, production-grade image prompt (camera, action, environment, mood). Style: ${visualStyle}. ${characterGuidance}. JSON only.`;
-              const text = await callText([{ text: narrative }], sys, schema);
-              const parsed = JSON.parse(text);
-              setPredicted(parsed.map((s, i) => ({ id: i, ...s })));
-              setStatus(`Found ${parsed.length} scenes. Review & confirm.`);
-            } catch (e) { setErr(e.message); }
-            finally { setBusy(false); }
-          }
-
-          /** Shot Suggestions **/
-          async function getShotSuggestions(scene) {
-              setShotSuggestions({ sceneId: scene.id, suggestions: [], loading: true });
-              setErr(null);
-              try {
-                  const schema = { type: 'ARRAY', items: { type: 'STRING' } };
-                  const systemPrompt = "You are an expert cinematographer. Given a scene description and a prompt, provide 3 alternative, more dynamic and creative camera shot prompts as a JSON array of strings only. Focus on camera angles, movement, and composition. Do not repeat the original prompt.";
-                  const userPrompt = `Scene: "${scene.sceneHeader}"\n\nCurrent Prompt: "${scene.prompt}"\n\nSuggest 3 alternatives.`;
-                  const text = await callText([{ text: userPrompt }], systemPrompt, schema);
-                  const parsed = JSON.parse(text);
-                  setShotSuggestions({ sceneId: scene.id, suggestions: parsed, loading: false });
-              } catch (e) {
-                  setErr(e.message);
-                  setShotSuggestions({ sceneId: scene.id, suggestions: [], loading: false });
-              }
-          }
-
-          /** Generation flow **/
-          async function generateAll() {
-            if (!predicted?.length) return;
-            setBusy(true); setErr(null); setStatus('Starting generation ...'); setScenes(predicted.map((s,i)=>({ ...s, id: i, status: 'queued', image: null, t0: 0, t1: 0, tries: 0 })));
-            setStartedAt(now()); setFinishedAt(null); setGenCount(0);
-
-            const submit = (idx) => {
-              queueRef.current.push(async () => {
-                const update = (patch) => setScenes(prev => prev.map(s => s.id===idx? { ...s, ...patch } : s));
-                let attempt = 0; let ok = false; let imageUrl = null; let errorMsg = '';
-                const s = predicted[idx];
-                const fidelity = refImg && charLock ? 'CRUCIAL: replicate the reference character with extreme precision. ' : (refImg? 'Use the provided reference as guidance. ' : '');
-                const promptText = `${s.prompt} ${fidelity} Style: ${visualStyle}. Masterpiece, keyframe, 16:9.`;
-                const keyRaw = `${promptText}|${refImg? 'ref1':''}`; const ckey = await sha256(keyRaw);
-                try {
-                  update({ status:'starting', t0: now() });
-                  const cached = await idb.get(ckey);
-                  if (cached) { imageUrl = cached; ok = true; }
-                  else {
-                    while (attempt <= retryCount && !ok) {
-                      attempt++; update({ status: attempt>1? 'retrying':'generating', tries: attempt });
-                      try {
-                        const img = await callImage(promptText, refImg);
-                        const branded = await brandImage(img);
-                        imageUrl = branded; ok = true; await idb.set(ckey, branded).catch(()=>{});
-                      } catch (err) {
-                        errorMsg = String(err);
-                        if (attempt <= retryCount) await sleep(retryDelay * attempt);
-                      }
-                    }
-                  }
-                } finally {
-                  update({ status: ok? 'success':'error', image: imageUrl, error: ok? null : errorMsg, t1: now() });
-                  if (ok) setGenCount(x => x + 1);
-                }
-              });
+    // 2. IndexedDB Helpers
+    const idb = (() => {
+      let dbPromise = null;
+      function getDB() {
+        if (!('indexedDB' in window)) return null;
+        if (!dbPromise) {
+          dbPromise = new Promise((resolve, reject) => {
+            const req = indexedDB.open('dn-ai-pro-apex-db-v2', 2);
+            req.onupgradeneeded = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains('images')) db.createObjectStore('images');
+              if (!db.objectStoreNames.contains('history')) db.createObjectStore('history', { keyPath: 'timestamp' });
             };
-            for (let i=0; i < predicted.length; i++) submit(i);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          });
+        }
+        return dbPromise;
+      }
+      return {
+        async getHistory() {
+          const db = await getDB();
+          if (!db) return [];
+          return new Promise((res, rej) => {
+            const r = db.transaction('history', 'readonly').objectStore('history').getAll();
+            r.onsuccess = () => res(r.result.sort((a,b) => b.timestamp - a.timestamp));
+            r.onerror = () => rej(r.error);
+          });
+        },
+        async addHistory(item) {
+          const db = await getDB();
+          if (!db) return false;
+          return new Promise((res, rej) => {
+            const t = db.transaction('history', 'readwrite');
+            t.objectStore('history').put(item);
+            t.oncomplete = () => res(true);
+            t.onerror = () => rej(t.error);
+          });
+        }
+      };
+    })();
+
+    // 3. Task Queue
+    class TaskQueue {
+      running = 0;
+      q = [];
+      max;
+      onComplete = () => {};
+      constructor(max = 3) { this.max = max; }
+      setMax(n) { this.max = Math.max(1, n); this.tick(); }
+      push(task) { this.q.push(task); this.tick(); }
+      clear() { this.q.length = 0; this.onComplete(); }
+      async tick() {
+        if (this.running === 0 && this.q.length === 0) { this.onComplete(); return; }
+        while (this.running < this.max && this.q.length > 0) {
+          const t = this.q.shift();
+          this.running++;
+          t().finally(() => { this.running--; this.tick(); });
+        }
+      }
+    }
+
+    // 4. API Client with Exponential Backoff
+    async function safeFetchWithRetry(url, options, maxRetries) {
+      const apiKey = ""; // provide your key if needed
+      const fullUrl = `${url}?key=${apiKey}`;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            const delay = 1500 * Math.pow(2, attempt - 1);
+            await new Promise(r => setTimeout(r, delay));
           }
-          
-          useEffect(() => {
-              if (scenes.length > 0 && scenes.every(s => s.status === 'success' || s.status === 'error')) {
-                  setFinishedAt(now());
-                  setStatus('Generation complete.');
-                  setBusy(false);
+          const response = await fetch(fullUrl, options);
+          const json = await response.json();
+          if (!response.ok) {
+            const errorMessage = json.error?.message || json.error || `API error (${response.status}): ${JSON.stringify(json)}`;
+            throw new Error(errorMessage);
+          }
+          return json;
+        } catch (e) {
+          if (attempt === maxRetries) throw e;
+        }
+      }
+    }
+
+    async function callText(parts, system, jsonSchema, retryCount) {
+      const model = 'gemini-2.5-flash-preview-05-20';
+      const body = {
+        contents: [{ parts }],
+        systemInstruction: system ? { parts: [{ text: system }] } : undefined,
+        generationConfig: jsonSchema ? { responseMimeType: 'application/json', responseSchema: jsonSchema } : undefined
+      };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const json = await safeFetchWithRetry(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      }, retryCount);
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error('Text API returned no content.');
+      return text;
+    }
+
+    async function callImage(promptText, ref, retryCount) {
+      const model = 'gemini-2.5-flash-image-preview';
+      const parts = [{ text: promptText }];
+      if (ref) {
+        const b64 = ref.split(',')[1];
+        parts.push({ inlineData: { mimeType: 'image/jpeg', data: b64 } });
+      }
+      const body = { contents: [{ parts }], generationConfig: { responseModalities: ['IMAGE'] } };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const json = await safeFetchWithRetry(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      }, retryCount);
+      const base64 = json.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+      if (!base64) throw new Error('Image API returned no image data.');
+      return `data:image/png;base64,${base64}`;
+    }
+
+    const fileToBase64 = (file) => new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(file);
+    });
+
+    function App() {
+      const textModel = 'gemini-2.5-flash-preview-05-20';
+      const [visualStyle, setVisualStyle] = useState('Cinematic Photorealistic');
+      const [aspectRatio, setAspectRatio] = useState('16:9');
+      const [narrative, setNarrative] = useState('A lone astronaut, EVA ROSTOVA, discovers a glowing alien artifact on Mars. It pulses with light, drawing her closer. She touches it, and the Martian landscape warps into a lush, alien jungle.');
+      const [refImg, setRefImg] = useState(null);
+      const [charLock, setCharLock] = useState(true);
+      const [predicted, setPredicted] = useState(null);
+      const [scenes, setScenes] = useState([]);
+      const [busy, setBusy] = useState(false);
+      const [status, setStatus] = useState('System Initialized. Ready for Quantum Processing.');
+      const [err, setErr] = useState(null);
+      const [showSettings, setShowSettings] = useState(false);
+      const [showHistoryModal, setShowHistoryModal] = useState(false);
+      const [historyItems, setHistoryItems] = useState([]);
+      const [editingScene, setEditingScene] = useState(null);
+      const [editPrompt, setEditPrompt] = useState('');
+      const [isEditing, setIsEditing] = useState(false);
+      const [creditsUsed, setCreditsUsed] = useState(0.00);
+      const [characterSheet, setCharacterSheet] = useState(null);
+      const [directorsVision, setDirectorsVision] = useState(null);
+      const [magicToolOutput, setMagicToolOutput] = useState(null);
+      const [showVisionModal, setShowVisionModal] = useState(false);
+      const [scriptFile, setScriptFile] = useState(null);
+      const [apiKey, setApiKey] = useState('');
+
+      const maxConcurrent = 4;
+      const retryCount = 2;
+      const queueRef = useRef(new TaskQueue(maxConcurrent));
+
+      useEffect(() => { AudioEngine.init(); idb.getHistory().then(setHistoryItems).catch(() => console.error('Failed to load history.')); }, []);
+
+      const aspectRatioClass = useMemo(() => ({ '16:9': 'aspect-[16/9]', '9:16': 'aspect-[9/16]', '1:1': 'aspect-square', '4:3': 'aspect-[4/3]' }[aspectRatio] || 'aspect-[16/9]'), [aspectRatio]);
+      const incrementCredits = useCallback(() => setCreditsUsed(c => parseFloat((c + 0.10).toFixed(2))), []);
+
+      const loadHistoryItem = useCallback((item) => {
+        setNarrative(item.vision?.refined_script || 'Script reloaded from history.');
+        setDirectorsVision(item.vision); setScenes(item.scenes); setPredicted(null); setCreditsUsed(item.cost);
+        setVisualStyle(item.config.visualStyle); setAspectRatio(item.config.aspectRatio); setScriptFile(item.config.scriptFile || null);
+        setCharacterSheet(item.vision?.character_sheet || null); setShowHistoryModal(false); setStatus('Project state reloaded successfully.'); AudioEngine.play('success');
+      }, []);
+
+      async function extractScriptFromDocument(file) {
+        setStatus(`Analyzing ${file.name} (Initiating deep-scan sequence, $0.05 charge)...`);
+        const mimeType = file.type; const base64Data = (await fileToBase64(file)).split(',')[1];
+        const sys = 'You are an expert film industry document processor. Analyze the provided document (PDF, DOCX, or TXT) and extract the screenplay, teleplay, or narrative text. It is CRITICAL that you preserve all original formatting, including SCENE HEADERS (EXT./INT.), CHARACTER NAMES, DIALOGUE blocks, and ACTION lines. Your output MUST be the raw, formatted script text only. Do NOT add any introductory or explanatory text. Ignore all document metadata, page numbers, and margin notes.';
+        const parts = [{ text: 'Extract the full formatted script from this document.' }, { inlineData: { mimeType, data: base64Data } }];
+        try { const extractedText = await callText(parts, sys, undefined, retryCount); return extractedText; }
+        catch (e) { console.error('Gemini Document Extraction Failed:', e); throw new Error(`Failed to extract script from document. Check file formatting or try plain text. Error: ${String(e.message)}`); }
+      }
+
+      async function handleScriptUpload(e) {
+        const file = e.target.files?.[0]; if (!file) return;
+        setScriptFile(file.name); setBusy(true); setErr(null);
+        try {
+          let extractedContent = '';
+          if (file.type.startsWith('text/')) {
+            extractedContent = await file.text();
+          } else if (['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.type)) {
+            extractedContent = await extractScriptFromDocument(file); setCreditsUsed(c => parseFloat((c + 0.05).toFixed(2)));
+          } else { throw new Error(`Unsupported file type: ${file.type}`); }
+          setNarrative(extractedContent); setStatus(`Script data stream initialized from ${file.name}.`); AudioEngine.play('success');
+        } catch (error) { setErr(String(error.message)); setStatus('Error: Failed to process data stream.'); AudioEngine.play('error'); }
+        finally { setBusy(false); }
+      }
+
+      async function runAiDirector() {
+        AudioEngine.play('click'); setBusy(true); setErr(null); setStatus('AI Director is analyzing your script...'); setDirectorsVision(null); setCharacterSheet(null); setPredicted(null); setScenes([]);
+        try {
+          let charSheet = null;
+          if (refImg && charLock) {
+            setStatus('Analyzing character reference image using multi-modal sensor...');
+            const sysChar = 'You are a forensic artist. Describe the person in this image in extreme detail for a character sheet. Focus on facial features, hair, ethnicity, build, and unique identifiers. Respond in JSON with a single key \'description\'.';
+            const schemaChar = { type: 'OBJECT', properties: { description: { type: 'STRING' } }, required: ['description'] };
+            const partsChar = [{ text: 'Describe this person.' }, { inlineData: { mimeType: 'image/jpeg', data: refImg.split(',')[1] } }];
+            const charResult = await callText(partsChar, sysChar, schemaChar, retryCount);
+            charSheet = JSON.parse(charResult).description; setCharacterSheet(charSheet);
+          }
+          setStatus("Developing Director's Vision Matrix...");
+          const sysVision = `You are an acclaimed film director. Analyze this script and the provided character/brand info. Generate a "Director's Vision" document as JSON.`;
+          const schemaVision = { type: 'OBJECT', properties: { main_character: { type: 'STRING' }, core_theme: { type: 'STRING' }, visual_tone: { type: 'STRING' }, cinematography_style: { type: 'STRING' }, refined_script: { type: 'STRING' } }, required: ['main_character','core_theme','visual_tone','cinematography_style','refined_script'] };
+          const visionResult = await callText([{ text: narrative }], sysVision, schemaVision, retryCount);
+          const vision = JSON.parse(visionResult); if (charSheet) vision.character_sheet = charSheet;
+          setDirectorsVision(vision); setShowVisionModal(true); setStatus("Director's Vision complete. Awaiting user approval to proceed with scene segmentation."); AudioEngine.play('success');
+        } catch (e) { setErr(String(e.message || e)); setStatus('AI Director analysis failed. Review script input.'); AudioEngine.play('error'); }
+        finally { setBusy(false); }
+      }
+
+      async function generateScenesFromVision() {
+        AudioEngine.play('click'); setShowVisionModal(false); setBusy(true); setErr(null); setStatus('Generating scene prompts based on Vision and Style Matrix...');
+        try {
+          if (!directorsVision) throw new Error("Director's Vision Matrix is missing.");
+          const visionContext = `DIRECTOR'S VISION: Theme: ${directorsVision.core_theme}, Tone: ${directorsVision.visual_tone}, Cinematography: ${directorsVision.cinematography_style}${directorsVision.character_sheet ? ` Main Character (${directorsVision.main_character}) Appearance: ${directorsVision.character_sheet}` : ''}`;
+          const schema = { type: 'ARRAY', items: { type: 'OBJECT', properties: { sceneHeader: { type: 'STRING' }, prompt: { type: 'STRING' } }, required: ['sceneHeader','prompt'] } };
+          const sys = `You are a storyboard artist. Use the refined script and strictly adhere to the DIRECTOR'S VISION to create production-grade image prompts. The vision is paramount. If the main character is mentioned, their appearance MUST match the character sheet. URGENT AND MANDATORY: All images must be rendered in a "${visualStyle}" style and have an exact aspect ratio of "${aspectRatio}". Respond in JSON only.`;
+          const text = await callText([{ text: `Refined Script: \n\n${directorsVision.refined_script}\n\n${visionContext}` }], sys, schema, retryCount);
+          const parsed = JSON.parse(text); setPredicted(parsed.map((s,i) => ({ id: i, ...s }))); setStatus(`Generated ${parsed.length} visual segment prompts. Ready to synthesize frames.`); AudioEngine.play('success');
+        } catch (e) { setErr(String(e.message || e)); setStatus('Error generating visual segment prompts.'); AudioEngine.play('error'); }
+        finally { setBusy(false); }
+      }
+
+      const runGenerationTask = useCallback(async (sceneData, isRetry = false) => {
+        const update = (patch) => setScenes(prev => prev.map(s => s.id === sceneData.id ? { ...s, ...patch } : s));
+        let attempt = 0, ok = false, imageUrl = null, errorMsg = '';
+        const finalPrompt = `URGENT, MANDATORY: Render in a "${visualStyle}" style. The final image MUST have an exact aspect ratio of "${aspectRatio}". SCENE PROMPT: ${sceneData.prompt}`;
+        try {
+          update({ status: 'starting' });
+          while (attempt <= retryCount && !ok) {
+            attempt++; if (isRetry || attempt > 1) incrementCredits();
+            update({ status: attempt > 1 ? `retrying ${attempt - 1}/${retryCount}` : 'generating' });
+            try { const img = await callImage(finalPrompt, (charLock && refImg) ? refImg : null, 0); imageUrl = img; ok = true; }
+            catch (err) { errorMsg = String(err.message || err); if (attempt <= retryCount) await new Promise(r => setTimeout(r, 1500)); }
+          }
+          update({ status: ok ? 'success' : 'error', image: imageUrl, error: ok ? null : errorMsg }); AudioEngine.play(ok ? 'success' : 'error');
+        } catch (err) { update({ status: 'error', error: String(err.message || err) }); AudioEngine.play('error'); }
+      }, [aspectRatio, charLock, incrementCredits, refImg, retryCount, visualStyle]);
+
+      useEffect(() => {
+        queueRef.current.onComplete = () => {
+          setTimeout(() => {
+            setBusy(false); setStatus('Frame Synthesis complete. All tasks terminated.');
+            setScenes(current => {
+              if (current.length > 0 && current.every(s => ['success','error'].includes(s.status))) {
+                const historyEntry = { timestamp: Date.now(), scenes: current.map(s => ({...s, status: s.status, prompt: s.prompt})), cost: creditsUsed, vision: directorsVision, config: { visualStyle, aspectRatio, scriptFile } };
+                idb.addHistory(historyEntry).then(() => idb.getHistory().then(setHistoryItems)).catch(() => console.error('Failed to save history'));
+                return current;
               }
-          }, [scenes]);
-
-
-          /** Reorder scenes **/
-          const dragIdx = useRef(null);
-          function onDragStart(i){ dragIdx.current = i; }
-          function onDrop(i){
-            const from = dragIdx.current; if (from==null || from===i) return; dragIdx.current = null;
-            setPredicted(prev => {
-              const arr = [...prev]; const [m] = arr.splice(from,1); arr.splice(i,0,m);
-              return arr.map((s,idx)=>({ ...s, id: idx }));
+              return current;
             });
+          }, 400);
+        };
+      }, [creditsUsed, directorsVision, visualStyle, aspectRatio, scriptFile]);
+
+      function generateAllImages() {
+        if (!predicted?.length) return; AudioEngine.play('click');
+        if (predicted.length > 0) setCreditsUsed(c => parseFloat((c + predicted.length * 0.10).toFixed(2)));
+        setScenes(predicted.map(s => ({ ...s, status: 'queued', image: null, error: null }))); setBusy(true); setErr(null); setStatus('Starting parallel quantum image synthesis...');
+        predicted.forEach(s => queueRef.current.push(() => runGenerationTask(s)));
+      }
+
+      function regenerateScene(sceneId) {
+        AudioEngine.play('click'); const s = scenes.find(x => x.id === sceneId); if (s) {
+          setBusy(true); setStatus('Retrying scene generation...');
+          setScenes(prev => prev.map(scene => scene.id === sceneId ? { ...scene, status: 'queued', error: null } : scene));
+          queueRef.current.push(() => runGenerationTask(s, true));
+        }
+      }
+
+      async function handleEditImage() {
+        AudioEngine.play('click'); if (!editingScene || !editPrompt) return; setIsEditing(true); setErr(null); incrementCredits();
+        try {
+          const fullEditPrompt = `Based on the attached image, apply this change: ${editPrompt}. Maintain the style and aspect ratio.`;
+          const newImageUrl = await callImage(fullEditPrompt, editingScene.image, retryCount);
+          setScenes(prev => prev.map(s => s.id === editingScene.id ? { ...s, image: newImageUrl, prompt: `${s.prompt}\n\n[USER EDIT: ${editPrompt}]` } : s));
+          setEditingScene(null); setEditPrompt(''); setStatus('Image edited successfully. New frame synthesized.'); AudioEngine.play('success');
+        } catch (e) { setErr(`Failed to edit image: ${String(e.message || e)}`); AudioEngine.play('error'); }
+        finally { setIsEditing(false); }
+      }
+
+      async function runMagicTool(tool) {
+        AudioEngine.play('click'); setBusy(true); setMagicToolOutput({ tool, loading: true, title: tool.replace(/_/g, ' ') }); setErr(null);
+        try {
+          if (!narrative) throw new Error('A script is required.');
+          let sys = '', schema = null, isJson = true;
+          const context = directorsVision ? `Use this Director's Vision as context: ${JSON.stringify(directorsVision)}` : '';
+          if (tool === 'titles') {
+            sys = `You are a world-class marketing copywriter. Based on the script and director's vision, generate 7 punchy, high-concept, marketable movie titles. JSON array of strings. ${context}. Focus on cinematic impact and memorability.`;
+            schema = { type: 'ARRAY', items: { type: 'STRING' } };
+          } else if (tool === 'logline') {
+            sys = `You are a professional screenwriter. Based on the script and director's vision, write a single, perfect logline (25 words max). Plain text. ${context}. Make it incredibly hooky and high-concept, focusing on protagonist, goal, and stakes.`;
+            isJson = false;
+          } else if (tool === 'doctor') {
+            sys = `You are a script doctor specializing in visual storytelling and pacing. Provide 5 actionable, structural improvements to the script focusing on escalating tension, visual clarity of action, and scene flow, keeping the director's vision in mind. JSON array of strings. ${context}`;
+            schema = { type: 'ARRAY', items: { type: 'STRING' } };
+          } else if (tool === 'music') {
+            sys = `You are a film score composer. Based on the script and director's vision, suggest a music genre, mood, and 3-5 key sound effects and their emotional purpose. JSON object. ${context}`;
+            schema = { type: 'OBJECT', properties: { genre: { type: 'STRING' }, mood: { type: 'STRING' }, sound_effects: { type: 'ARRAY', items: { type: 'STRING' } } }, required: ['genre','mood','sound_effects'] };
+          } else if (tool === 'breakdown') {
+            sys = `You are a professional cinematographer/storyboard supervisor. Analyze the provided script and generate a shot-by-shot visual breakdown focusing on the first 3-5 key moments/sentences. For each moment, suggest a primary shot type (e.g., Extreme Wide Shot, Close-Up, POV, Tracking Shot) and the desired emotional impact. Respond in JSON with an array of objects, each having 'moment' (string), 'shot' (string), and 'emotion' (string). ${context}`;
+            schema = { type: 'ARRAY', items: { type: 'OBJECT', properties: { moment: { type: 'STRING' }, shot: { type: 'STRING' }, emotion: { type: 'STRING' } }, required: ['moment','shot','emotion'] } };
           }
+          const rawResult = await callText([{ text: narrative }], sys, isJson ? schema : undefined, retryCount);
+          const result = isJson ? JSON.parse(rawResult) : rawResult;
+          setMagicToolOutput({ tool, loading: false, data: result, title: tool.replace(/_/g, ' ') }); setStatus(`Magic Tool (${tool}) output generated.`); AudioEngine.play('success');
+        } catch (e) { setErr(`Magic tool failed: ${String(e.message || e)}`); setStatus(`Magic Tool (${tool}) failed.`); AudioEngine.play('error'); }
+        finally { setBusy(false); }
+      }
 
-          /** Export ZIP **/
-          async function exportZip() {
-            try {
-              setStatus('Preparing ZIP ...');
-              if (!window.JSZip) {
-                await loadExternal('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
-              }
-              const zip = new window.JSZip();
-              zip.file('scenes.json', JSON.stringify(scenes.length? scenes : predicted, null, 2));
-              const withImages = scenes.filter(s => s.image);
-              for (const s of withImages) {
-                const b = await (await fetch(s.image)).blob();
-                zip.file(`${s.sceneHeader.replace(/[^a-z0-9]/gi,'_').toLowerCase()}.png`, b);
-              }
-              const blob = await zip.generateAsync({ type: 'blob' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a'); a.href = url; a.download = 'dn_ai_storyboard.zip'; a.click(); URL.revokeObjectURL(url);
-              setStatus('ZIP exported.');
-            } catch (e) { setErr(e.message); }
-          }
+      const MagicToolButton = ({ tool, icon: Icon, children }) => (
+        <button onClick={() => runMagicTool(tool)} disabled={!narrative || busy} className="premium-button w-full flex items-center justify-center gap-2 px-2 py-2 text-sm font-semibold rounded-md bg-slate-800/70 border border-cyan-500/20 hover:bg-cyan-900/50 disabled:opacity-50 disabled:cursor-not-allowed">
+          <Icon size={14} className="text-cyan-400" /> {children}
+        </button>
+      );
 
-          /** Computed helpers **/
-          const completed = scenes.filter(s => s.status==='success').length;
-          const total = scenes.length || predicted?.length || 0;
-          const percent = total? Math.round((completed/total)*100) : 0;
-          const eta = useMemo(() => {
-            if (!avgMsPerImg || total===0 || completed >= total) return null;
-            const remaining = total - completed; return Math.max(0, Math.round((remaining * avgMsPerImg)/1000));
-          }, [avgMsPerImg, total, completed]);
+      const AnimatedWait = () => {
+        const [tagline, setTagline] = useState('Conjuring Pixels...');
+        const taglines = ['Directing Photons...', 'Weaving Narratives...', 'Synthesizing Vision...', 'Orchestrating Creativity...', 'Painting with Light...', 'Executing Quantum Tasks...', 'Loading Neural Network...'];
+        const completedCount = scenes.filter(s => ['success', 'error'].includes(s.status)).length;
+        const totalScenes = scenes.length; const progress = totalScenes > 0 ? Math.round((completedCount / totalScenes) * 100) : 0;
+        useEffect(() => { if (!busy) return; const i = setInterval(() => setTagline(taglines[Math.floor(Math.random() * taglines.length)]), 1800); return () => clearInterval(i); }, [busy]);
+        if (!busy) return null;
+        return (
+          <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center font-sans">
+            <div className="loader-orb" />
+            <div className="mt-4 text-white text-3xl font-extrabold tracking-widest">{progress}%</div>
+            <div className="w-64 h-2 bg-slate-800 rounded-full overflow-hidden mt-2">
+              <div className="h-full bg-cyan-400 transition-all duration-300 ease-in-out" style={{ width: `${progress}%` }}></div>
+            </div>
+            <p className="mt-4 text-cyan-300 font-semibold text-lg tracking-wider animate-[floaty_3s_ease-in-out_infinite]">{tagline} <span className="text-sm text-slate-400">({completedCount}/{totalScenes} done)</span></p>
+          </div>
+        );
+      };
 
-          return (
-            <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-black text-gray-100">
-              <header className="sticky top-0 z-30 border-b border-white/10 backdrop-blur supports-[backdrop-filter]:bg-black/40 bg-black/30">
-                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center font-extrabold">DN</div>
-                  <div className="flex-1">
-                    <h1 className="text-lg font-semibold">DN AI Studio — Ultra Storyboard (Pro)</h1>
-                    <p className="text-xs text-white/60">Concurrency • Caching • Timers • Worker Branding • Export</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={exportZip} className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-700">Export ZIP</button>
+      return (
+        <div className="min-h-screen animated-bg text-gray-200 font-sans">
+          <style jsx="true">{`
+            @keyframes gradientFlow { 0% {background-position:0% 50%} 50% {background-position: 100% 50%} 100%{background-position: 0% 50%} }
+            @keyframes floaty { 0% {transform: translateY(0)} 50% {transform: translateY(-6px)} 100%{transform: translateY(0)} }
+            @keyframes starfield { 0% {transform: translateY(0)} 100% {transform: translateY(-2000px)} }
+            .animated-bg { background: linear-gradient(-45deg, #00010a, #0a011a, #010a0a, #00010a); background-size: 400% 400%; animation: gradientFlow 25s ease infinite; position: relative; overflow: hidden; }
+            .animated-bg::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: transparent; background-image: radial-gradient(white, rgba(255, 255, 255, 0) 1px), radial-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1px); background-size: 100px 100px, 300px 300px; opacity: 0.1; animation: starfield 200s linear infinite; pointer-events: none; }
+            .glass-pane { background: rgba(10,15,30,.3); backdrop-filter: blur(16px) brightness(1.1); border: 1px solid rgba(0,255,255,.15); box-shadow: 0 4px 30px rgba(0,0,0,.3); }
+            .premium-button { transition: all .3s cubic-bezier(.17,.67,.83,.67); transform-style: preserve-3d; }
+            .premium-button:hover:not(:disabled) { transform: translateY(-3px) scale(1.01); box-shadow: 0 12px 25px rgba(0,255,255,.2); border-color: rgba(0,255,255,.5); }
+            .loader-orb { width: 110px; height: 110px; border-radius: 50%; filter: drop-shadow(0 0 20px rgba(0,255,255,.4)); background: conic-gradient(from 0deg, #06b6d4 0 120deg, transparent 120deg 240deg, #60a5fa 240deg 360deg); animation: spin 1.2s linear infinite; position: relative }
+            .loader-orb::after { content:""; position:absolute; inset: 12px; border-radius: 50%; background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.3), #000 70%); }
+            @keyframes spin { to { transform: rotate(360deg)} }
+          `}</style>
+
+          <AnimatedWait />
+
+          <header className="sticky top-0 z-40 border-b border-cyan-400/20 backdrop-blur-xl bg-black/50">
+            <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center gap-4">
+              <Zap size={30} className="text-cyan-400 animate-pulse" />
+              <div className="flex-1">
+                <h1 className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-500 tracking-wider">
+                  DN AI Studio <span className="text-lg text-slate-400 font-medium">| GENESIS FRAMEWORKS</span>
+                </h1>
+                <p className="text-xs text-cyan-500/60 font-mono">Model: {textModel} | Status: Online</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-green-400/90 bg-green-900/30 px-3 py-1 rounded-full text-sm font-semibold border border-green-500/30">
+                  <DollarSign size={16} />{creditsUsed.toFixed(2)} CREDITS
+                </div>
+                <button onClick={() => { AudioEngine.play('click'); setShowHistoryModal(true); }} className="premium-button flex items-center gap-2 text-xs px-3 py-1.5 rounded-md bg-slate-800/80 hover:bg-cyan-900/40 border border-cyan-500/20">
+                  <Clock size={14} /> HISTORY LOG
+                </button>
+                <button onClick={() => { AudioEngine.play('click'); setShowSettings(true); }} className="premium-button flex items-center gap-2 text-xs px-3 py-1.5 rounded-md bg-slate-800/80 hover:bg-cyan-900/40 border border-cyan-500/20">
+                  <Settings size={14} /> CONSOLE
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-screen-2xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 px-4 sm:px-6 lg:px-8 py-6">
+            <section className="lg:col-span-3 space-y-4">
+              <div className="glass-pane rounded-xl p-4">
+                <h2 className="font-semibold mb-3 text-cyan-400 flex items-center gap-2"><Eye size={16} /> Visual Matrix</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <select value={visualStyle} onChange={e => setVisualStyle(e.target.value)} className="w-full bg-slate-800/70 border border-slate-700 rounded-md px-2 py-2 text-sm focus:ring-cyan-500 focus:border-cyan-500 transition duration-150">
+                    <option>Cinematic Photorealistic</option><option>Noir Comic Book</option><option>Modern Anime</option>
+                    <option>Vintage Cartoon</option><option>Hollywood Glamour</option><option>3D Render</option>
+                    <option>Cyberpunk Neon</option><option>Fantasy Art</option>
+                  </select>
+                  <select value={aspectRatio} onChange={e => setAspectRatio(e.target.value)} className="w-full bg-slate-800/70 border border-slate-700 rounded-md px-2 py-2 text-sm focus:ring-cyan-500 focus:border-cyan-500 transition duration-150">
+                    <option value="16:9">16:9 (Widescreen)</option><option value="9:16">9:16 (Vertical)</option>
+                    <option value="1:1">1:1 (Square)</option><option value="4:3">4:3 (Classic)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="glass-pane rounded-xl p-4">
+                <h2 className="font-semibold mb-3 text-cyan-400 flex items-center gap-2"><ImageIcon size={16} /> Asset Synchronization</h2>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Reference Character Image (for locking)</label>
+                  <input type="file" accept="image/*" onChange={async e => { if (e.target.files?.[0]) setRefImg(await fileToBase64(e.target.files[0])); }} className="w-full text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-slate-700 hover:file:bg-slate-600 file:text-slate-200 cursor-pointer"/>
+                  <div className="mt-2 flex items-center gap-2 text-sm">
+                    <input id="charLock" type="checkbox" checked={charLock} onChange={e => setCharLock(e.target.checked)} className="h-4 w-4 rounded bg-slate-700 text-cyan-500 border-none focus:ring-0 cursor-pointer" />
+                    <label htmlFor="charLock" className="text-sm">Enable Character Lock (Synchronize visual identity)</label>
                   </div>
                 </div>
-              </header>
+              </div>
 
-              <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 px-4 py-6">
-                <section className="lg:col-span-1 space-y-4">
-                  <div className="rounded-xl border border-white/10 p-4 bg-black/40">
-                    <h2 className="font-semibold mb-2">Configuration</h2>
-                    <label className="block text-xs text-white/60 mb-1">Google API Key</label>
-                    <input value={apiKey} onChange={e=>setApiKey(e.target.value)} type="password" placeholder="Paste your free Google AI Studio key" className="w-full bg-black/40 border border-white/10 rounded px-3 py-2 text-sm mb-3"/>
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Text Model</label>
-                        <select value={textModel} onChange={e=>setTextModel(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm">
-                          <option>gemini-2.5-flash-preview-05-20</option>
-                          <option>gemini-1.5-pro</option>
-                        </select>
+              <div className="glass-pane rounded-xl p-4">
+                <h2 className="font-semibold mb-2 text-cyan-400 flex items-center gap-2"><FileText size={16} /> Script Data Stream</h2>
+                <label className="block text-xs text-gray-400 mb-1">Upload PDF, DOCX, or TXT (AI Deep-Scan $0.05)</label>
+                <input type="file" accept=".pdf, .docx, .txt, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain" onChange={handleScriptUpload} className="w-full text-xs file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-cyan-700 hover:file:bg-cyan-600 file:text-white cursor-pointer"/>
+                {scriptFile && <p className="text-xs text-slate-500 mt-1 truncate">Loaded Source: {scriptFile}</p>}
+                <label className="block text-xs text-gray-400 mt-3 mb-1">Narrative Text Input</label>
+                <textarea value={narrative} onChange={e => setNarrative(e.target.value)} rows={8} className="w-full bg-slate-800/70 border border-slate-700 rounded-md p-2 text-sm font-mono focus:ring-cyan-500 focus:border-cyan-500"></textarea>
+              </div>
+
+              <div className="glass-pane rounded-xl p-4">
+                <h2 className="font-semibold mb-3 text-cyan-400 flex items-center gap-2"><BrainCircuit size={16} /> AI Director Module</h2>
+                <button onClick={runAiDirector} disabled={!narrative || busy} className="premium-button w-full px-2 py-2 text-sm font-bold rounded-md bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-lg hover:from-blue-500 hover:to-cyan-500 disabled:bg-slate-700 disabled:cursor-not-allowed">
+                  <span className="flex items-center gap-2"><BrainCircuit size={16} /> INITIATE DIRECTOR'S VISION</span>
+                </button>
+              </div>
+
+              <div className="glass-pane rounded-xl p-4">
+                <h2 className="font-semibold mb-3 text-cyan-400 flex items-center gap-2"><Sparkles size={16} /> Creative Synthesis Tools</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  <MagicToolButton tool="titles" icon={Type}>Title Generation</MagicToolButton>
+                  <MagicToolButton tool="logline" icon={Film}>Logline Synthesis</MagicToolButton>
+                  <MagicToolButton tool="doctor" icon={CheckSquare}>Script Optimization</MagicToolButton>
+                  <MagicToolButton tool="music" icon={Music}>Soundscape Suggestion</MagicToolButton>
+                  <MagicToolButton tool="breakdown" icon={List}>Shot Breakdown</MagicToolButton>
+                </div>
+              </div>
+
+              {err && (
+                <div className="bg-red-900/40 border border-red-500/50 p-3 rounded-xl text-red-300 text-sm">
+                  <p className="font-semibold">SYSTEM ERROR:</p>
+                  <p className="mt-1">{err}</p>
+                </div>
+              )}
+            </section>
+
+            <section className="lg:col-span-9 space-y-4">
+              <div className="glass-pane rounded-xl p-3 text-center text-sm font-mono tracking-wider border-cyan-400/30">
+                SYSTEM LOG: <span className={cn(busy ? 'text-yellow-400' : 'text-cyan-400', 'font-semibold')}>{status}</span>
+              </div>
+
+              {scenes.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {scenes.map(s => (
+                    <div key={s.timestamp || s.id} className="glass-pane rounded-xl overflow-hidden flex flex-col shadow-2xl">
+                      <div className="px-3 py-2 border-b border-cyan-500/20 flex items-center justify-between bg-slate-800/50">
+                        <div className="text-sm font-semibold truncate pr-2 text-slate-200">{s.sceneHeader}</div>
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', s.status === 'success' && 'bg-green-500/20 text-green-300 border border-green-500/50', s.status === 'error' && 'bg-red-500/20 text-red-300 border border-red-500/50', s.status === 'queued' && 'bg-slate-500/20 text-slate-300 border border-slate-500/50', (s.status === 'generating' || s.status === 'starting' || String(s.status).startsWith('retrying')) && 'bg-blue-500/20 text-blue-300 animate-pulse border border-blue-500/50')}>{String(s.status).includes('retrying') ? 'RETRY' : s.status.toUpperCase()}</span>
                       </div>
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Image Model</label>
-                        <select value={imageModel} onChange={e=>setImageModel(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm">
-                          <option>gemini-2.5-flash-image-preview</option>
-                        </select>
+                      <div className={cn('relative bg-black/50 transition-all duration-300', aspectRatioClass)}>
+                        {['generating', 'starting'].includes(s.status) || String(s.status).startsWith('retrying') ? (
+                          <div className="absolute inset-0 flex items-center justify-center"><div className="loader-orb w-16 h-16" /></div>
+                        ) : s.image ? (
+                          <img src={s.image} alt={s.sceneHeader} className="w-full h-full object-cover transition-opacity duration-500" />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs p-2 text-center bg-slate-900/80">{s.status === 'error' ? (s.error || 'Error: Frame Data Corrupted') : 'Queued... Awaiting Execution.'}</div>
+                        )}
+                      </div>
+                      <div className="p-3 border-t border-cyan-500/10">
+                        <textarea value={s.prompt} readOnly className="w-full bg-slate-800/70 border-0 rounded-md p-2 text-xs h-24 cursor-default resize-none text-slate-400"></textarea>
+                      </div>
+                      <div className="px-3 py-2 border-t border-cyan-500/10 flex items-center justify-end gap-2 bg-slate-800/50">
+                        {s.image && <button onClick={() => { AudioEngine.play('click'); setEditingScene(s); }} className="premium-button p-2 rounded-md bg-slate-700/50 hover:bg-slate-600/70 border border-slate-600" title="Edit Image"><Wand2 size={14} className='text-yellow-400' /></button>}
+                        <button onClick={() => regenerateScene(s.id)} disabled={busy} className="premium-button p-2 rounded-md bg-slate-700/50 hover:bg-slate-600/70 border border-slate-600 disabled:opacity-50" title="Retry"><RotateCw size={14} className='text-orange-400'/></button>
+                        {s.image && <button onClick={() => { AudioEngine.play('click'); const a = document.createElement('a'); a.href = s.image; a.download = `DN_AI_Frame_${s.id}.png`; a.click(); }} className="premium-button p-2 rounded-md bg-cyan-600 hover:bg-cyan-500" title="Download"><Download size={14} /></button>}
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 mt-3">
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Style</label>
-                        <select value={visualStyle} onChange={e=>setVisualStyle(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm">
-                          <option>Cinematic Photorealistic</option>
-                          <option>Noir Comic Book</option>
-                          <option>Anime (Modern)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Concurrency</label>
-                        <input type="number" min={1} max={12} value={maxConcurrent} onChange={e=>setMaxConcurrent(+e.target.value||1)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm"/>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Retries</label>
-                        <input type="number" min={0} max={5} value={retryCount} onChange={e=>setRetryCount(+e.target.value||0)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm"/>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Retry Delay (ms)</label>
-                        <input type="number" min={200} value={retryDelay} onChange={e=>setRetryDelay(+e.target.value||1500)} className="w-full bg-black/40 border border-white/10 rounded px-2 py-2 text-sm"/>
-                      </div>
-                      <div className="flex items-end gap-2">
-                        <button onClick={()=>{ setScenes([]); setPredicted(null); setStatus('Reset.'); }} className="px-3 py-2 text-xs rounded bg-gray-700/50 border border-white/10">Reset</button>
-                      </div>
-                    </div>
+                  ))}
+                </div>
+              ) : predicted ? (
+                <div className="glass-pane rounded-xl p-6">
+                  <h2 className="font-extrabold text-xl text-cyan-300 border-b border-cyan-500/30 pb-2 mb-4">SEGMENTATION PROTOCOL</h2>
+                  <p className="text-sm text-slate-400 mb-4">The Director Module has segmented the narrative into {predicted.length} visual prompts. Confirm parameters before Frame Synthesis.</p>
+                  <ol className="divide-y divide-slate-800 space-y-3">
+                    {predicted.map(s => (
+                      <li key={s.id} className="py-3">
+                        <div className="text-sm font-semibold text-slate-300 flex items-center gap-2"><Film size={14} className='text-blue-400'/> {s.sceneHeader}</div>
+                        <p className="mt-1 w-full bg-slate-800/50 border border-slate-700 rounded-md p-2 text-xs text-slate-400 font-mono">{s.prompt}</p>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="mt-6">
+                    <button onClick={generateAllImages} disabled={busy} className="premium-button w-full px-3 py-3 text-lg font-bold rounded-md bg-gradient-to-r from-green-500 to-teal-600 text-white shadow-xl hover:from-green-400 hover:to-teal-500 disabled:bg-slate-700 disabled:opacity-50">
+                      EXECUTE FRAME SYNTHESIS (${(predicted?.length || 0 * 0.10).toFixed(2)})
+                    </button>
                   </div>
+                </div>
+              ) : (
+                <div className="glass-pane rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[50vh]">
+                  <Wand2 size={64} className="text-cyan-400/50 animate-pulse" />
+                  <div className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-500 mt-4 tracking-widest">DN AI STUDIO</div>
+                  <p className="text-gray-400 mt-2 max-w-md">The future of visual development is here. Upload your script and initiate the AI Director module to begin generating high-fidelity storyboards.</p>
+                  <button onClick={() => document.querySelector('textarea')?.focus()} className="premium-button mt-6 px-6 py-3 text-base font-semibold bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 rounded-lg shadow-xl">Start New Project</button>
+                </div>
+              )}
+            </section>
+          </main>
 
-                  <div className="rounded-xl border border-white/10 p-4 bg-black/40 space-y-3">
-                    <h2 className="font-semibold">Assets</h2>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Reference Character</label>
-                        <input type="file" accept="image/*" onChange={async e=>{ if (!e.target.files?.[0]) return; setRefImg(await fileToBase64(e.target.files[0])); }} className="w-full text-xs"/>
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs">Lock</span>
-                          <input type="checkbox" checked={charLock} onChange={e=>setCharLock(e.target.checked)} />
-                        </div>
-                        {refImg && <img src={refImg} alt="ref" className="mt-2 rounded border border-white/10 max-h-24 object-contain"/>}
-                      </div>
-                      <div>
-                        <label className="block text-xs text-white/60 mb-1">Logo (PNG)</label>
-                        <input type="file" accept="image/png" onChange={async e=>{ if (!e.target.files?.[0]) return; setLogoImg(await fileToBase64(e.target.files[0])); }} className="w-full text-xs"/>
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-xs">Enable Branding</span>
-                          <input type="checkbox" checked={brandOn} onChange={e=>setBrandOn(e.target.checked)} />
-                        </div>
-                        {logoImg && <img src={logoImg} alt="logo" className="mt-2 rounded border border-white/10 max-h-16 object-contain bg-black/30 p-1"/>}
-                      </div>
-                    </div>
-                  </div>
+          {showVisionModal && directorsVision && (
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-lg flex items-center justify-center p-4" onClick={() => setShowVisionModal(false)}>
+              <div className="glass-pane rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border-yellow-400/20" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-cyan-500/20"><h2 className="font-extrabold text-xl text-yellow-400 flex items-center gap-2"><BrainCircuit size={20} /> DIRECTOR'S VISION MATRIX</h2></div>
+                <div className="p-4 overflow-y-auto space-y-4 text-sm">
+                  <VisionDetail title="Core Theme">{directorsVision.core_theme}</VisionDetail>
+                  <VisionDetail title="Visual Tone">{directorsVision.visual_tone}</VisionDetail>
+                  <VisionDetail title="Cinematography">{directorsVision.cinematography_style}</VisionDetail>
+                  {characterSheet && <VisionDetail title={`Character Sheet (${directorsVision.main_character})`}>{characterSheet}</VisionDetail>}
+                  <VisionDetail title="Refined Script Snippet (first 300 chars)">{String(directorsVision.refined_script).slice(0, 300)}...</VisionDetail>
+                </div>
+                <div className="p-4 mt-auto border-t border-cyan-500/20 flex justify-end gap-3 bg-slate-900/40">
+                  <button onClick={() => { AudioEngine.play('click'); setShowVisionModal(false); }} className="premium-button px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-md">REVIEW VISION LATER</button>
+                  <button onClick={generateScenesFromVision} disabled={busy} className="premium-button px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 rounded-md disabled:opacity-50 font-bold">PROCEED TO SEGMENTATION</button>
+                </div>
+              </div>
+            </div>
+          )}
 
-                  <div className="rounded-xl border border-white/10 p-4 bg-black/40 space-y-2">
-                    <h2 className="font-semibold">Magic Tools</h2>
-                    <button onClick={analyze} disabled={!narrative || busy} className="w-full px-2 py-2 text-xs rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600">Analyze Scenes</button>
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      <button onClick={async()=>{ const r=await runMagic('title'); if(r) alert(r.join('\n')); }} className="px-2 py-2 text-xs rounded bg-gray-700/50 border border-white/10">Titles</button>
-                      <button onClick={async()=>{ const r=await runMagic('logline'); if(r) alert(r); }} className="px-2 py-2 text-xs rounded bg-gray-700/50 border border-white/10">Logline</button>
-                      <button onClick={async()=>{ const r=await runMagic('doctor'); if(r) alert(r.map((x,i)=>`${i+1}. ${x}`).join('\n')); }} className="px-2 py-2 text-xs rounded bg-gray-700/50 border border-white/10">Script Doctor</button>
-                      <button onClick={() => runMagic('music')} className="px-2 py-2 text-xs rounded bg-gray-700/50 border border-white/10">✨ Suggest Music</button>
-                    </div>
-                  </div>
+          {editingScene && (
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-lg flex items-center justify-center p-4" onClick={() => setEditingScene(null)}>
+              <div className="glass-pane rounded-xl w-full max-w-lg border-yellow-400/20" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-cyan-500/20"><h2 className="font-semibold text-lg text-yellow-400">FRAME EDIT: {editingScene.sceneHeader}</h2></div>
+                <div className="p-4 space-y-4">
+                  <img src={editingScene.image} alt="Editing preview" className="rounded-lg w-full object-contain max-h-64 border border-slate-700" />
+                  <textarea value={editPrompt} onChange={e => setEditPrompt(e.target.value)} placeholder="Enter precise visual instructions (e.g., 'change the light source to be warmer and add heavy rain')" rows={3} className="w-full bg-slate-800 border-slate-700 rounded-md p-2 text-sm focus:ring-yellow-500 focus:border-yellow-500"></textarea>
+                </div>
+                <div className="p-4 flex justify-end gap-3 bg-slate-900/40 border-t border-cyan-500/20">
+                  <button onClick={() => { AudioEngine.play('click'); setEditingScene(null); setEditPrompt(''); }} className="premium-button px-4 py-2 text-sm bg-slate-700 rounded-md hover:bg-slate-600">CANCEL</button>
+                  <button onClick={handleEditImage} disabled={isEditing || !editPrompt} className="premium-button px-4 py-2 text-sm bg-yellow-600 rounded-md hover:bg-yellow-500 disabled:opacity-50 text-black font-bold">
+                    {isEditing ? <Loader2 size={16} className="animate-spin text-black" /> : 'APPLY EDIT ($0.10)'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
-                  <div className="rounded-xl border border-white/10 p-4 bg-black/40">
-                    <h2 className="font-semibold mb-2">Script</h2>
-                    <div className="flex gap-2 mb-2">
-                      <label className="px-3 py-1.5 text-xs rounded bg-gray-700/50 border border-white/10 cursor-pointer">Import PDF
-                        <input hidden type="file" accept="application/pdf" onChange={e=> e.target.files?.[0] && importPdf(e.target.files[0]) }/>
-                      </label>
-                      <button onClick={()=>{ setNarrative(''); }} className="px-3 py-1.5 text-xs rounded bg-gray-700/50 border border-white/10">Clear</button>
-                    </div>
-                    <textarea value={narrative} onChange={e=>setNarrative(e.target.value)} rows={10} className="w-full bg-black/30 border border-white/10 rounded p-2 text-sm font-mono"></textarea>
-                  </div>
-
-                  <div className="rounded-xl border border-white/10 p-4 bg-black/40">
-                    <h2 className="font-semibold mb-2">Status</h2>
-                    {err ? (
-                      <div className="text-red-400 text-sm">{err}</div>
-                    ) : (
-                      <div className="text-white/80 text-sm">{status}</div>
-                    )}
-                    <div className="mt-2 h-2 w-full bg-white/10 rounded overflow-hidden">
-                      <div className="h-full bg-indigo-600" style={{ width: `${percent}%` }} />
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-white/60">
-                      <div>Scenes: {total||0}</div>
-                      <div>Done: {completed}</div>
-                      <div>ETA: {eta!=null? `${eta}s` : '—'}</div>
-                    </div>
-                    <div className="mt-1 grid grid-cols-3 gap-2 text-xs text-white/60">
-                      <div>Avg/img: {avgMsPerImg? `${Math.round(avgMsPerImg)} ms`:'—'}</div>
-                      <div>Throughput: {avgMsPerImg? `${(60000/avgMsPerImg).toFixed(1)} img/min`:'—'}</div>
-                      <div>Concurrency: {maxConcurrent}</div>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      {predicted && !busy && <button onClick={generateAll} className="px-3 py-2 text-xs rounded bg-green-600 hover:bg-green-700">Generate {predicted.length}</button>}
-                      {busy && <button onClick={()=>{ queueRef.current.clear(); setBusy(false); setStatus('Cancelled.'); }} className="px-3 py-2 text-xs rounded bg-red-600">Cancel</button>}
-                    </div>
-                  </div>
-                </section>
-
-                <section className="lg:col-span-2 space-y-4">
-                  {predicted && scenes.length===0 && (
-                    <div className="rounded-xl border border-white/10 p-4 bg-black/40">
-                      <div className="flex items-center justify-between">
-                        <h2 className="font-semibold">Pre‑Production Report</h2>
-                        <div className="text-xs text-white/60">Drag to reorder</div>
-                      </div>
-                      <ol className="mt-2 divide-y divide-white/10">
-                        {predicted.map((s, i) => (
-                          <li key={s.id} draggable onDragStart={()=>onDragStart(i)} onDragOver={e=>e.preventDefault()} onDrop={()=>onDrop(i)} className="py-3 px-2 hover:bg-white/5 rounded transition-colors duration-200">
-                            <div className="text-sm font-semibold">{s.sceneHeader}</div>
-                            <textarea value={s.prompt} onChange={(e)=> setPredicted(prev => prev.map(p => p.id===s.id? { ...p, prompt: e.target.value } : p))} className="mt-1 w-full bg-black/30 border border-white/10 rounded p-2 text-xs"></textarea>
-                            <div className="mt-2">
-                                <button 
-                                    onClick={() => getShotSuggestions(s)} 
-                                    disabled={shotSuggestions.loading && shotSuggestions.sceneId === s.id}
-                                    className="px-2 py-1 text-xs rounded bg-indigo-600/50 hover:bg-indigo-600/70 border border-indigo-500/50 disabled:bg-gray-600 disabled:cursor-wait transition-all"
-                                >
-                                    {shotSuggestions.loading && shotSuggestions.sceneId === s.id ? 'Thinking...' : '✨ Suggest Shots'}
-                                </button>
+          {magicToolOutput && (
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-lg flex items-center justify-center p-4" onClick={() => setMagicToolOutput(null)}>
+              <div className="glass-pane rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col border-cyan-400/20" onClick={e => e.stopPropagation()}>
+                <div className="p-4 flex justify-between items-center border-b border-cyan-500/20">
+                  <h2 className="font-extrabold text-xl text-cyan-400 capitalize flex items-center gap-2"><Sparkles size={20} /> CREATIVE SYNTHESIS: {magicToolOutput.title}</h2>
+                  <button onClick={() => { AudioEngine.play('click'); setMagicToolOutput(null); }} className="p-1 rounded-full hover:bg-slate-700"><X size={20} /></button>
+                </div>
+                <div className="p-4 overflow-y-auto">
+                  {magicToolOutput.loading ? (
+                    <div className="flex items-center justify-center min-h-[100px]"><Loader2 size={32} className="animate-spin text-cyan-400" /></div>
+                  ) : Array.isArray(magicToolOutput.data) ? (
+                    <ol className="list-decimal list-inside text-sm space-y-3 p-4 bg-slate-900/70 rounded-md border border-slate-700">
+                      {magicToolOutput.data.map((item, index) => (
+                        <li key={index} className="pl-2">
+                          {typeof item === 'object' && item.moment && item.shot ? (
+                            <div className="space-y-1">
+                              <p className="font-bold text-cyan-300">Moment: <span className="font-normal text-slate-300">{item.moment}</span></p>
+                              <p className="font-bold text-blue-300">Shot Type: <span className="font-normal text-slate-300">{item.shot}</span></p>
+                              <p className="font-bold text-purple-300">Emotional Target: <span className="font-normal text-slate-300">{item.emotion}</span></p>
                             </div>
-                            {shotSuggestions.sceneId === s.id && shotSuggestions.suggestions.length > 0 && (
-                                <div className="mt-2 space-y-1 border-t border-white/10 pt-2">
-                                    <h4 className="text-xs font-semibold text-white/70">Suggestions:</h4>
-                                    {shotSuggestions.suggestions.map((suggestion, sugIdx) => (
-                                        <div 
-                                            key={sugIdx} 
-                                            onClick={() => {
-                                                setPredicted(prev => prev.map(p => p.id === s.id ? { ...p, prompt: suggestion } : p));
-                                                setShotSuggestions({ sceneId: null, suggestions: [], loading: false });
-                                            }}
-                                            className="p-2 text-xs bg-black/40 hover:bg-indigo-900/50 border border-white/10 rounded cursor-pointer transition-colors"
-                                        >
-                                            {suggestion}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                          </li>
-                        ))}
-                      </ol>
-                      <div className="mt-3 flex gap-2">
-                        <button onClick={()=>setPredicted(null)} className="px-3 py-2 text-xs rounded bg-gray-700/50 border border-white/10">Reject</button>
-                        <button onClick={generateAll} className="px-3 py-2 text-xs rounded bg-green-600 hover:bg-green-700">Generate {predicted.length}</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {(scenes.length>0) && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {scenes.map(s => (
-                        <div key={s.id} className="rounded-xl overflow-hidden border border-white/10 bg-black/40 flex flex-col">
-                          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-                            <div className="text-sm font-semibold truncate pr-2">{s.sceneHeader}</div>
-                            <span className={cn('text-2xs px-2 py-0.5 rounded',
-                              s.status==='success' && 'bg-green-500/20 text-green-300',
-                              s.status==='error' && 'bg-red-500/20 text-red-300',
-                              (s.status==='queued'||s.status==='starting') && 'bg-gray-500/20 text-gray-300',
-                              s.status==='generating' && 'bg-indigo-500/20 text-indigo-300',
-                              s.status==='retrying' && 'bg-yellow-500/20 text-yellow-300'
-                            )}>{s.status}</span>
-                          </div>
-                          <div className="relative aspect-video bg-black/50">
-                            {s.image ? (
-                              <img src={s.image} alt={s.sceneHeader} className="w-full h-full object-cover"/>
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center text-white/60 text-xs">
-                                {s.status==='error' ? s.error || 'Error' : '...'}
-                              </div>
-                            )}
-                          </div>
-                          <div className="p-3 text-xs text-white/70 border-t border-white/10 h-24 overflow-auto">
-                            {s.prompt}
-                          </div>
-                          <div className="px-3 py-2 border-t border-white/10 flex items-center gap-2 text-2xs text-white/60">
-                            <div>t: {s.t0 && s.t1 ? `${Math.max(1, Math.round(s.t1 - s.t0))} ms` : '—'}</div>
-                            <div className="ml-auto flex gap-2">
-                              {s.image && <button onClick={async()=>{ const a=document.createElement('a'); a.href=s.image; a.download=`scene_${s.sceneHeader.replace(/[^a-z0-9]/gi,'_').toLowerCase()}.png`; a.click(); }} className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700">Download</button>}
-                            </div>
-                          </div>
+                          ) : (
+                            <p className="text-slate-300">{item}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : typeof magicToolOutput.data === 'string' ? (
+                    <pre className="text-sm whitespace-pre-wrap bg-slate-900/70 p-4 rounded-md border-slate-700 border overflow-x-auto text-slate-300">{magicToolOutput.data}</pre>
+                  ) : (
+                    <div className="space-y-3 p-4 bg-slate-900/70 rounded-md border border-slate-700 text-xs">
+                      {Object.entries(magicToolOutput.data).map(([key, value]) => (
+                        <div key={key}>
+                          <h3 className="font-bold text-cyan-300 capitalize">{key.replace(/_/g, ' ')}:</h3>
+                          <p className="ml-4 text-slate-300">{Array.isArray(value) ? value.join(', ') : value}</p>
                         </div>
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
 
-                  {(!predicted && scenes.length===0) && (
-                    <div className="rounded-xl border border-white/10 p-8 bg-black/40 text-center">
-                      <div className="text-2xl font-semibold">Your AI‑powered storyboard awaits.</div>
-                      <div className="text-white/60 mt-2">Paste a script, analyze scenes, then batch‑generate with caching & branding.</div>
+          {showSettings && (
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-lg flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
+              <div className="glass-pane rounded-xl w-full max-w-lg border-cyan-400/20" onClick={e => e.stopPropagation()}>
+                <div className="p-4 flex justify-between items-center border-b border-cyan-500/20">
+                  <h2 className="font-extrabold text-xl text-cyan-400 flex items-center gap-2"><Settings size={20}/> SYSTEM CONSOLE</h2>
+                  <button onClick={() => { AudioEngine.play('click'); setShowSettings(false); }} className="p-1 rounded-full hover:bg-slate-700"><X size={20} /></button>
+                </div>
+                <div className="p-4 space-y-4">
+                  <VisionDetail title="API Key Reference (Security Protocol: Handled by Runtime)">
+                    <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Key is managed by execution environment" className="w-full bg-slate-800 border-slate-700 rounded-md p-2 text-sm focus:ring-cyan-500 focus:border-cyan-500" />
+                    <p className="text-xs text-slate-500 mt-2">This field is for external deployment configuration only. All runtime API calls are secured and managed automatically.</p>
+                  </VisionDetail>
+                  <VisionDetail title="Current AI Models">
+                    <p className="font-mono text-xs">Text/Vision: {textModel}</p>
+                    <p className="font-mono text-xs">Image/Edit: gemini-2.5-flash-image-preview</p>
+                  </VisionDetail>
+                </div>
+                <div className="p-4 mt-auto border-t border-cyan-500/20 bg-slate-900/40">
+                  <button onClick={() => {AudioEngine.play('click'); setShowSettings(false);}} className="premium-button w-full px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-md font-bold">CLOSE CONSOLE</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showHistoryModal && (
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-lg flex items-center justify-center p-4" onClick={() => setShowHistoryModal(false)}>
+              <div className="glass-pane rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col border-cyan-400/20" onClick={e => e.stopPropagation()}>
+                <div className="p-4 flex justify-between items-center border-b border-cyan-500/20">
+                  <h2 className="font-extrabold text-xl text-cyan-400 flex items-center gap-2"><Clock size={20}/> PROJECT HISTORY LOG</h2>
+                  <button onClick={() => { AudioEngine.play('click'); setShowHistoryModal(false); }} className="p-1 rounded-full hover:bg-slate-700"><X size={20} /></button>
+                </div>
+                <div className="p-4 overflow-y-auto space-y-4">
+                  {historyItems.length === 0 ? (
+                    <p className="text-slate-400 text-center py-8">History Log Empty. Generate a project to save state.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-800">
+                      {historyItems.map((item, index) => (
+                        <div key={item.timestamp} className="py-3 px-3 hover:bg-slate-900/50 rounded-lg transition duration-150 group flex justify-between items-start">
+                          <div className='flex-1 pr-4'>
+                            <div className='flex justify-between items-center'>
+                              <h3 className="text-sm font-bold text-cyan-300">
+                                {item.config.scriptFile || `Project: ${item.scenes[0]?.sceneHeader || `Storyboard ${index + 1}`}`}
+                              </h3>
+                              <p className="text-xs text-slate-500">{new Date(item.timestamp).toLocaleDateString()}</p>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">
+                              <span className="font-semibold">Theme:</span> {item.vision?.core_theme || 'N/A'} | <span className="font-semibold">Frames:</span> {item.scenes.length} | <span className="font-semibold">Cost:</span> ${item.cost.toFixed(2)}
+                            </p>
+                            <div className="mt-2 flex space-x-2 overflow-x-auto pb-1">
+                              {item.scenes.slice(0, 5).map((s, i) => (
+                                <img key={i} src={s.image || `https://placehold.co/60x34/0f172a/707070?text=${s.status.slice(0,1)}`} alt={`Scene ${i}`} className="w-16 h-9 object-cover rounded border border-slate-700 group-hover:border-cyan-400/50" />
+                              ))}
+                              {item.scenes.length > 5 && <span className="text-xs text-slate-500 self-center pl-2">+{item.scenes.length - 5}</span>}
+                            </div>
+                          </div>
+                          <button onClick={() => { AudioEngine.play('click'); loadHistoryItem(item); }} className="premium-button flex-shrink-0 text-xs px-3 py-1.5 rounded-md bg-cyan-700/50 hover:bg-cyan-600/70 border border-cyan-500/50 self-center font-bold">
+                            <span className='flex items-center gap-1'><RotateCw size={12}/> RELOAD</span>
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
-                </section>
+                </div>
+                <div className="p-4 mt-auto border-t border-cyan-500/20 bg-slate-900/40">
+                  <button onClick={() => {AudioEngine.play('click'); setShowHistoryModal(false);}} className="premium-button w-full px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 rounded-md font-bold">DONE</button>
+                </div>
               </div>
-
-              <footer className="py-6 text-center text-xs text-white/40">DN Studio — Where AI meets Art Direction. v2.0‑pro</footer>
             </div>
-          );
-        }
+          )}
+        </div>
+      );
+    }
 
-        const container = document.getElementById('root');
-        const root = ReactDOM.createRoot(container);
-        root.render(<UltraStoryboardApp />);
-    </script>
+    const VisionDetail = ({ title, children }) => (
+      <div className="space-y-1">
+        <h3 className="font-bold text-slate-300">{title}:</h3>
+        <div className="text-xs p-2 bg-slate-800/50 rounded-md whitespace-pre-wrap border border-slate-700">{children}</div>
+      </div>
+    );
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
 </body>
 </html>
-
